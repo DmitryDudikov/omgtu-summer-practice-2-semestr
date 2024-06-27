@@ -32,23 +32,111 @@
 
 #!csharp
 
-//
-// Вычисление определенного интеграла
-//
+/*using System;
+using System.Threading;
+using System.Threading.Tasks;
+
 class DefiniteIntegral
 {
-    //
-    // a, b - границы отрезка, на котором происходит вычисление опредленного интеграла
-    // function - функция, для которой вычисляется определнный интеграл
-    // step - размер одного шага разбиения
-    // threadsNumber - число потоков, которые используются для вычислений
-    //
-    public static double Solve(double a, double b, Func<double, double> function, double step, int threadsnumber)
+    public static double Solve(double a, double b, Func<double, double> function, double step, int threadsNumber)
     {
-        // отсюда надо начинать реализацию задачи
-        return 0.0;
+        double total = 0.0;
+        object lockObject = new object();
+        int n = (int)Math.Ceiling((b - a) / step); // Общее количество шагов
+
+        // Длина сегмента для каждого потока
+        double segmentLength = (b - a) / threadsNumber;
+
+        Barrier barrier = new Barrier(threadsNumber);
+
+        Parallel.For(0, threadsNumber, i =>
+        {
+            double localA = a + i * segmentLength;
+            double localB = (i == threadsNumber - 1) ? b : localA + segmentLength; // Последний сегмент может быть длиннее
+
+            double localSum = 0.0;
+            for (double x = localA; x < localB; x += step)
+            {
+                double x1 = x;
+                double x2 = Math.Min(x + step, localB);
+                localSum += 0.5 * (function(x1) + function(x2)) * (x2 - x1);
+            }
+
+            lock (lockObject)
+            {
+                total += localSum;
+            }
+            barrier.SignalAndWait();
+        });
+
+        return total;
     }
 }
+*/
+
+#!csharp
+
+static double FindMinValue(double[] array)
+    {
+        int j = 0;
+        double minValue = array[0];
+
+        
+        for (int i = 1; i < array.Length; i++)
+        {
+            if (array[i] < minValue)
+            {
+                minValue = array[i];
+                j = i;
+            }
+        }
+
+        return (double)j;
+    }
+
+#!csharp
+
+using System;
+using System.Diagnostics;
+using System.Threading;
+using System.Threading.Tasks;
+
+class DefiniteIntegral
+{
+    public static double Solve(double a, double b, Func<double, double> function, double step, int threadsNumber)
+    {
+        double total = 0.0;
+        object lockObject = new object();
+        int n = (int)Math.Ceiling((b - a) / step); // Общее количество шагов
+
+        // Длина сегмента для каждого потока
+        double segmentLength = (b - a) / threadsNumber;
+
+        Parallel.For(0, threadsNumber, i =>
+        {
+            double localA = a + i * segmentLength;
+            double localB = (i == threadsNumber - 1) ? b : localA + segmentLength; // Последний сегмент может быть длиннее
+
+            double localSum = 0.0;
+            for (double x = localA; x < localB; x += step)
+            {
+                double x1 = x;
+                double x2 = Math.Min(x + step, localB);
+                localSum += 0.5 * (function(x1) + function(x2)) * (x2 - x1);
+            }
+
+            
+            lock (lockObject)
+            {
+                total += localSum;
+            }
+        });
+
+        return total;
+    }
+}
+
+//оптимизированная версия
 
 #!csharp
 
@@ -63,4 +151,164 @@ Assert.Equal(0, DefiniteIntegral.Solve(-1, 1, X, 1e-4, 2), 1e-4);
 
 Assert.Equal(0, DefiniteIntegral.Solve(-1, 1, SIN, 1e-5, 8), 1e-4);
 
-Assert.Equal(10, DefiniteIntegral.Solve(0, 10, X, 1e-6, 8), 1e-5);
+Assert.Equal(50, DefiniteIntegral.Solve(0, 10, X, 1e-6, 8), 1e-5); // <= REDACTED Assert.Equal(10, DefiniteIntegral.Solve(0, 10, X, 1e-6, 8), 1e-5); 
+
+#!csharp
+
+double[] BstStep = [1e-1, 1e-2, 1e-3, 1e-4, 1e-5, 1e-6];
+double[] elapsedTime = new double[BstStep.Length] ;
+int o =0;
+foreach (double step in BstStep)
+{
+
+        Stopwatch stopWatch = new Stopwatch();
+
+        stopWatch.Start();
+
+        Assert.Equal(0, DefiniteIntegral.Solve(-100, 100, SIN, step, 2), 1e-4);
+
+        stopWatch.Stop();
+
+        TimeSpan ts = stopWatch.Elapsed;
+
+        elapsedTime[o] =(double)ts.Microseconds*1e-6 + (double)ts.Milliseconds*0.001 +(double)ts.Seconds; 
+        
+        Console.WriteLine($"RunTime при {step} :: " + elapsedTime[o] +$" результат работы программы :: {DefiniteIntegral.Solve(-100, 100, SIN, step, 2)}");
+        
+        o++;
+}
+var p = (int)FindMinValue(elapsedTime);
+Console.WriteLine("Наименьшее время при "+ BstStep[p])
+
+#!csharp
+
+#r "nuget:ScottPlot, 5.0.35"
+using Microsoft.DotNet.Interactive.Formatting;
+
+Formatter.Register(typeof(ScottPlot.Plot), (p, w) => 
+    w.Write(((ScottPlot.Plot)p).GetImageHtml(500, 500)), HtmlFormatter.MimeType);
+
+
+
+ScottPlot.Plot plt = new();
+plt.Add.Scatter(BstStep, elapsedTime);
+
+plt
+
+#!csharp
+
+double[] Bstthreads = new double[28];
+double[] elapsedTime = new double[28] ;
+
+for (int o =2;o<30; o++)
+{       
+        Bstthreads[o-2] = o;
+        
+        Stopwatch stopWatch = new Stopwatch();
+        for (int j=0; j<5;j++ )
+        {
+                stopWatch.Start();
+
+                Assert.Equal(0, DefiniteIntegral.Solve(-100, 100, SIN, BstStep[p], o), 1e-4);
+                
+                stopWatch.Stop();
+                TimeSpan ts = stopWatch.Elapsed;
+                elapsedTime[o-2] +=(double)ts.Microseconds*1e-6 + (double)ts.Milliseconds*0.001 +(double)ts.Seconds; 
+        }
+        elapsedTime[o-2] /=4; 
+
+        
+        
+        Console.WriteLine($"RunTime при 1e-2 и при {o}({Bstthreads[o-2]}) потоках :: " + elapsedTime[o-2] +$"\t результат рабьоты программы :: {DefiniteIntegral.Solve(-100, 100, SIN, BstStep[p], o)}");
+        
+       
+}
+
+#!csharp
+
+#r "nuget:ScottPlot, 5.0.35"
+using Microsoft.DotNet.Interactive.Formatting;
+
+Formatter.Register(typeof(ScottPlot.Plot), (p, w) => 
+    w.Write(((ScottPlot.Plot)p).GetImageHtml(500, 500)), HtmlFormatter.MimeType);
+
+
+
+ScottPlot.Plot plt = new();
+plt.Add.Scatter(elapsedTime, Bstthreads);
+
+plt
+
+#!csharp
+
+class DefiniteIntegralonethread
+{
+    public static double Solve(double a, double b, Func<double, double> function, double step)
+    {
+        double total = 0.0;
+        int n = (int)Math.Ceiling((b - a) / step); 
+
+        for (double x = a; x < b; x += step)
+        {
+            double x1 = x;
+            double x2 = Math.Min(x + step, b);
+            total += 0.5 * (function(x1) + function(x2)) * (x2 - x1);
+        }
+
+        return total;
+    }
+}
+
+#!csharp
+
+int j = (int)FindMinValue(elapsedTime);
+Console.WriteLine(elapsedTime[j] + " секунд  при " + Bstthreads[j] + " потоках");
+
+#!csharp
+
+Stopwatch stopWatch = new Stopwatch();
+TimeSpan ts = stopWatch.Elapsed;
+var elapsedTime_ONETRHREAD =(double)ts.Microseconds*1e-6 + (double)ts.Milliseconds*0.001 +(double)ts.Seconds;
+        for (int n = 0; n<5;n++)
+        {
+        
+        stopWatch.Start();
+
+        Assert.Equal(0, DefiniteIntegralonethread.Solve(-100, 100, SIN, BstStep[p]), 1e-4);
+
+        stopWatch.Stop();
+
+       
+         ts = stopWatch.Elapsed;
+         elapsedTime_ONETRHREAD+=(double)ts.Microseconds*1e-6 + (double)ts.Milliseconds*0.001 +(double)ts.Seconds;
+         Console.WriteLine(elapsedTime_ONETRHREAD);
+        }
+        elapsedTime_ONETRHREAD/=4;
+        Console.WriteLine(elapsedTime_ONETRHREAD)
+        
+
+#!csharp
+
+double num1 =elapsedTime[j];   
+double num2 = elapsedTime_ONETRHREAD;  
+
+double difference = num2 - num1;
+
+double percentage = (difference / num2) * 100;
+
+Console.WriteLine($"многопоточное время {num1} составляет приблизительно {percentage}% от однопоточного времени {num2}.");
+
+#!markdown
+
+## Summary
+
+- **Размер шага**: В моей реализации выбран размер шага `0.1`(результат выбора никогда не менялся).
+
+- **Количество потоков**: Для оптимальной многопоточной версии было выбрано `8`(самое надёжное кол-во потоков, оптимальное кол-во потоков может меняться при повторном запуске программы) потоков. Это количество было определено экспериментально и обеспечивает наилучшую производительность на моем процессоре.
+
+- **Сравнение скорости работы**:
+  - Многопоточная версия выполнялась за `9.75E-05` секунд.
+  - Однопоточная версия выполнялась за `0.000171` секунд.
+  - Разница в процентах: многопоточная версия работает на `50%+-15%`быстрее однопоточной.
+
+ 
