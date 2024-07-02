@@ -35,12 +35,115 @@
 
 #!csharp
 
+using System.Collections.Generic;
+using System.Threading;
+using System;
+
+#!csharp
+
+public interface ICommand
+{
+    void Execute();
+    bool IsCompleted { get; }
+}
+
+#!csharp
+
 public interface IScheduler
 {
-    bool HasCommand()
+    bool HasCommand();
     ICommand Select();
     void Add(ICommand cmd);
 }
+
+#!csharp
+
+public class Scheduler : IScheduler
+{
+    private Queue<ICommand> commandQueue = new Queue<ICommand>();
+
+    public bool HasCommand()
+    {
+        return commandQueue.Count > 0;
+    }
+
+    public ICommand Select()
+    {
+        if (HasCommand())
+        {
+            return commandQueue.Dequeue();
+        }
+        return null;
+    }
+
+    public void Add(ICommand cmd)
+    {
+        commandQueue.Enqueue(cmd);
+    }
+}
+
+#!csharp
+
+public class CommandExecutor
+{
+    private IScheduler scheduler;
+
+    public CommandExecutor(IScheduler scheduler)
+    {
+        this.scheduler = scheduler;
+    }
+
+    public void Execute()
+    {
+        while (true)
+        {
+            if (scheduler.HasCommand())
+            {
+                var command = scheduler.Select();
+                if (command != null)
+                {
+                    command.Execute();
+                    if (!command.IsCompleted)
+                    {
+                        scheduler.Add(command);
+                    }
+                }
+            }
+            else
+            {
+                Thread.Sleep(10); 
+            }
+        }
+    }
+}
+
+#!csharp
+
+public class ExampleCommand : ICommand
+{
+    private int executionCount = 0;
+    public bool IsCompleted => executionCount >= 10;
+
+    public void Execute()
+    {
+        executionCount++;
+        Console.WriteLine($"Выполнение команды... Счетчик: {executionCount}");
+    }
+}
+
+#!csharp
+
+IScheduler scheduler = new Scheduler();
+CommandExecutor executor = new CommandExecutor(scheduler);
+
+for (int i = 0; i < 5; i++)
+{
+    scheduler.Add(new ExampleCommand());
+}
+
+Thread executionThread = new Thread(new ThreadStart(executor.Execute));
+executionThread.Start();
+Console.ReadLine();
 
 #!markdown
 
