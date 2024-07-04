@@ -20,6 +20,10 @@
 
 #!csharp
 
+using System;
+using System.Collections.Concurrent;
+using System.Threading;
+
 interface ICommand
 {
     void Execute();
@@ -27,7 +31,7 @@ interface ICommand
 
 
 public class TestCommand(int id) : ICommand
-{
+{ 
     int counter = 0;
 
     public void Execute()
@@ -35,6 +39,56 @@ public class TestCommand(int id) : ICommand
         Console.WriteLine($"Поток {id} вызов {++counter}");
     }
 }
+
+#!csharp
+
+public class CommandScheduler
+{
+    private List<TestCommand> commands = new List<TestCommand>();
+    private CancellationTokenSource cts = new CancellationTokenSource();
+
+    public void ScheduleCommand(TestCommand command)
+    {
+        commands.Add(command);
+    }
+
+    public async Task ExecuteCommandsAsync(int numberOfExecutions)
+    {
+        for (int i = 0; i < numberOfExecutions; i++)
+        {
+            foreach (var command in commands)
+            {
+                command.Execute();
+            }
+        }
+    }
+
+    public void HardStop()
+    {
+        cts.Cancel();
+    }
+}
+
+#!csharp
+
+ CommandScheduler scheduler = new CommandScheduler();
+
+        // Adding 5 instances of TestCommand
+        for (int i = 0; i < 5; i++)
+        {
+            scheduler.ScheduleCommand(new TestCommand(i));
+        }
+
+        //Executing the commands 3 times
+        
+        await scheduler.ExecuteCommandsAsync(3);
+        
+
+        // Stopping the execution
+        scheduler.HardStop();
+
+        Console.WriteLine("Execution stopped.");
+    
 
 #!markdown
 
