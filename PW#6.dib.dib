@@ -37,10 +37,241 @@
 Для этого следует использовать условные события, которые позволят убедиться, что оба потока запустились и готовы читать и писать объекты и только потом запускать таймер.
 2. Для итогового вывода сравнивать усредненные значения.
 
-#!markdown
+#!csharp
 
-// здесь писать код
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Threading;
+using System.Threading.Tasks;
+
+
+        const int numIterations = 10;
+        const int numElements = 1000000;
+
+        // Замеры для непотокобезопасной очереди
+        Console.WriteLine("NTS ::");
+        List<double> nonThreadSafeTimes = new List<double>();
+        List<double> nonThreadSafeWriteTimes = new List<double>();
+        List<double> nonThreadSafeReadTimes = new List<double>();
+        for (int i = 0; i < numIterations; i++)
+        {
+            nonThreadSafeTimes.Add(NonThreadSafeQueue(numElements, ref nonThreadSafeWriteTimes, ref nonThreadSafeReadTimes));
+        }
+
+        // Замеры для ConcurrentQueue
+        Console.WriteLine("\nConcurrentQueue ::");
+        List<double> concurrentQueueTimes = new List<double>();
+        List<double> concurrentQueueWriteTimes = new List<double>();
+        List<double> concurrentQueueReadTimes = new List<double>();
+        for (int i = 0; i < numIterations; i++)
+        {
+            concurrentQueueTimes.Add(ConcurrentQueue(numElements,ref concurrentQueueWriteTimes,ref concurrentQueueReadTimes));
+        }
+
+        // Замеры для BlockingCollection
+        Console.WriteLine("\nBlockingCollection ::");
+        List<double> blockingCollectionTimes = new List<double>();
+        List<double> blockingCollectionWriteTimes = new List<double>();
+        List<double> blockingCollectionReadTimes = new List<double>();
+        
+        for (int i = 0; i < numIterations; i++)
+        {
+            blockingCollectionTimes.Add(BlockingCollection(numElements, ref blockingCollectionWriteTimes,ref blockingCollectionReadTimes));
+        }
+
+        // Вывод результатов
+        Console.WriteLine("среднее время Non-thread-safe: " + nonThreadSafeTimes.Average() + " ms");
+        Console.WriteLine("среднее время ConcurrentQueue: " + concurrentQueueTimes.Average() + " ms");
+        Console.WriteLine("среднее время BlockingCollection: " + blockingCollectionTimes.Average() + " ms");
+
+        // Построение графика (необходимо реализовать отдельно)
+    
+
+    static double NonThreadSafeQueue(int numElements,ref List<double> Write, ref List<double> Read)
+    {
+        Queue<int> queue = new Queue<int>();
+        Stopwatch stopwatch = new Stopwatch();
+        Console.WriteLine();
+        // Запись
+        stopwatch.Start();
+        for (int i = 0; i < numElements; i++)
+        {
+            queue.Enqueue(i);
+        }
+        stopwatch.Stop();
+        var TOTALTIME = stopwatch.Elapsed.TotalMilliseconds;
+        Write.Add(TOTALTIME);
+        Console.Write("Запись :: \t" + stopwatch.Elapsed.TotalMilliseconds);
+        // Чтение
+        stopwatch.Restart();
+        for (int i = 0; i < numElements; i++)
+        {
+            queue.Dequeue();
+        }
+        stopwatch.Stop();
+        Read.Add(stopwatch.Elapsed.TotalMilliseconds);
+        TOTALTIME += stopwatch.Elapsed.TotalMilliseconds;
+        Console.Write("\t Чтение :: \t" + stopwatch.Elapsed.TotalMilliseconds);
+        return  TOTALTIME;
+    }
+
+    static double ConcurrentQueue(int numElements, ref List<double> Write, ref List<double> Read)
+    {
+        ConcurrentQueue<int> queue = new ConcurrentQueue<int>();
+        Stopwatch stopwatchProducer = new Stopwatch();
+        Stopwatch stopwatchConsumer = new Stopwatch();
+        Stopwatch stopwatchWriteRead = new Stopwatch();
+        ManualResetEventSlim resetEvent = new ManualResetEventSlim(false);
+        int elementsRemaining = numElements;
+
+        // Запись
+        Task producer = Task.Run(() =>
+        {
+            resetEvent.Wait();
+            stopwatchWriteRead.Start();
+            stopwatchProducer.Start();
+
+            for (int i = 0; i < numElements; i++)
+            {
+                queue.Enqueue(i);
+            }
+            stopwatchProducer.Stop();
+        });
+
+        // Чтение
+        Task consumer = Task.Run(() =>
+        {
+            resetEvent.Wait();
+            stopwatchConsumer.Start();
+            while (elementsRemaining > 0)
+            {
+                if (queue.TryDequeue(out _))
+                {
+                   Interlocked.Decrement(ref elementsRemaining);
+                }
+            }
+            stopwatchWriteRead.Stop();
+            stopwatchConsumer.Stop();
+        });
+
+        
+        resetEvent.Set();
+        Task.WaitAll(producer, consumer);
+        Console.WriteLine("Запись :: \t" + stopwatchProducer.Elapsed.TotalMilliseconds + "\t Чтение :: \t" + stopwatchConsumer.Elapsed.TotalMilliseconds);
+        Write.Add(stopwatchProducer.Elapsed.TotalMilliseconds);
+        Read.Add(stopwatchConsumer.Elapsed.TotalMilliseconds);
+        return stopwatchWriteRead.Elapsed.TotalMilliseconds;
+    }
+
+    static double BlockingCollection(int numElements, ref List<double> Write, ref List<double> Read)
+    {
+        BlockingCollection<int> queue = new BlockingCollection<int>(new ConcurrentQueue<int>());
+        Stopwatch stopwatchProducer = new Stopwatch();
+        Stopwatch stopwatchConsumer = new Stopwatch();
+        Stopwatch stopwatchWriteRead = new Stopwatch();
+        ManualResetEventSlim resetEvent = new ManualResetEventSlim(false);
+
+        // Запись
+        Task producer = Task.Run(() =>
+        {
+            resetEvent.Wait();
+            stopwatchProducer.Start();
+            stopwatchWriteRead.Start();
+            for (int i = 0; i < numElements; i++)
+            {
+                queue.Add(i);
+            }
+            queue.CompleteAdding();
+            stopwatchProducer.Stop();
+        });
+
+        // Чтение
+        Task consumer = Task.Run(() =>
+        {
+            resetEvent.Wait();
+            stopwatchConsumer.Start();
+            for (int i = 0; i < numElements; i++)
+            {
+                queue.Take();
+            }
+            stopwatchWriteRead.Stop();
+            stopwatchConsumer.Stop();
+        });
+
+        
+        resetEvent.Set();
+        Task.WaitAll(producer, consumer);
+        
+        Console.WriteLine("Запись :: " + stopwatchProducer.Elapsed.TotalMilliseconds + " Чтение :: " + stopwatchConsumer.Elapsed.TotalMilliseconds);
+        Write.Add(stopwatchProducer.Elapsed.TotalMilliseconds);
+        Read.Add(stopwatchConsumer.Elapsed.TotalMilliseconds);
+        return stopwatchWriteRead.Elapsed.TotalMilliseconds;
+    }
+
+#!csharp
+
+#r "nuget:ScottPlot, 5.0.35"
+ScottPlot.Plot myPlot = new();
+
+ScottPlot.Palettes.Category10 palette = new();
+
+ScottPlot.Bar[] bars =
+{
+    // first group
+    new() { Position = 1, Value = nonThreadSafeTimes.Average(), FillColor = palette.GetColor(0), Error = 1 },
+    new() { Position = 2, Value = nonThreadSafeWriteTimes.Average(), FillColor = palette.GetColor(1), Error = 2 },
+    new() { Position = 3, Value = nonThreadSafeReadTimes.Average(), FillColor = palette.GetColor(2), Error = 1 },
+
+    // second group
+    new() { Position = 5, Value = concurrentQueueTimes.Average() , FillColor = palette.GetColor(0), Error = 2 },
+    new() { Position = 6, Value = concurrentQueueWriteTimes.Average(), FillColor = palette.GetColor(1), Error = 1 },
+    new() { Position = 7, Value = concurrentQueueReadTimes.Average(), FillColor = palette.GetColor(2), Error = 3 },
+
+    // third group
+    new() { Position = 9, Value = blockingCollectionTimes.Average(), FillColor = palette.GetColor(0), Error = 1 },
+    new() { Position = 10, Value = blockingCollectionWriteTimes.Average(), FillColor = palette.GetColor(1), Error = 3 },
+    new() { Position = 11, Value = blockingCollectionReadTimes.Average(), FillColor = palette.GetColor(2), Error = 2 },
+};
+
+myPlot.Add.Bars(bars);
+
+// build the legend manually
+myPlot.Legend.IsVisible = true;
+myPlot.Legend.Alignment = ScottPlot.Alignment.UpperLeft;
+myPlot.Legend.ManualItems.Add(new() { LabelText = "Total", FillColor = palette.GetColor(0) });
+myPlot.Legend.ManualItems.Add(new() { LabelText = "Write", FillColor = palette.GetColor(1) });
+myPlot.Legend.ManualItems.Add(new() { LabelText = "Read", FillColor = palette.GetColor(2) });
+
+// show group labels on the bottom axis
+ScottPlot.Tick[] ticks =
+{
+    new(2, "непотокобезопасной очередь"),
+    new(6, "ConcurrentQueue"),
+    new(10, "BlockingCollection"),
+};
+myPlot.Axes.Bottom.TickGenerator = new ScottPlot.TickGenerators.NumericManual(ticks);
+myPlot.Axes.Bottom.MajorTickStyle.Length = 0;
+myPlot.HideGrid();
+
+// tell the plot to autoscale with no padding beneath the bars
+myPlot.Axes.Margins(bottom: 0);
+
+myPlot
+ 
+
+#!csharp
+
+double NTS = nonThreadSafeTimes.Average();
+double CQ = concurrentQueueTimes.Average();
+
+double percentage = (CQ / NTS) * 100;
+Console.WriteLine($"CQ составляет ~ {Math.Round(percentage)}% от NTS.");
 
 #!markdown
 
 ## Вывод
+### Самая эффективная из потоко-безопасных коллекций `ConcurrentQueue` и её скорость составляет `~300%-700%` от обычной очереди
+
+#### При большем количестве замеров (100, 1000) разница скоростей более очевида и составляет `~400-440%`
